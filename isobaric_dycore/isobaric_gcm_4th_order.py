@@ -1,10 +1,20 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
-Created on Tue Apr 10 10:05:48 2018
+4th order finite difference primitive equations dynamical core with isobaric vertical coordinate
+    Copyright (C) 2018  Hans Brenna
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 @author: Hans Brenna
-@license: MIT
 This program implements a hydrostatic primitive equations GCM on an isobaric 
 vertical coordinate. The numerics will be 2nd order centered differences in 
 space and time on a uniform lat, lon horizontal grid. Subgrid scale diffusion 
@@ -19,29 +29,14 @@ Prognostic varriables: u,v,T,Ps
 Diagnostic variables: z,omega,omega_s,Q,theta,Fl,Fphi
 
 A speedup of the code was acheived using the numba just-in-time compiler @jit
-on most of the functions doing for loops. some functions are 
-
-This early version uses a low time step (~50-100 s) to ensure linear stability. I will add
-polar filtering using fft to control the short waves close to the poles to 
-increase the time step to ~300 s
+on most of the functions doing for loops. some functions are outsourced to Fortran
+using f2py.
 
 Current issues: Does not conserve total mass. drift is small ~0.1% over 10 days
 considering potential fixes. Fixed with mass fixer
 
 moving prognostic equations to 4th order centered differences
 
-I believe lorenz grid will be needed to avoid explicit vertical mixing, which I think 
-destroys the solution slightly. This time without helper fields. More transparent that
-way (for me)
-
-Current problem: Moving prognostic equations to 4th order improved representation of
-jets in lower latitudes, but I believe improper pole handling is currently destroying the
-solution towards the poles. Next step is to improve pole handling by shifting the grid 
-one half dphi towards the poles and using values from across the pole in the finite
-difference stencils.
-
-First I'm checking whether the horizontal diffusion is too strong and that this is not 
-the cause.
 """
 from __future__ import print_function
 import sys
