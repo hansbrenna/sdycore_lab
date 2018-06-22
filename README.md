@@ -11,6 +11,8 @@ The first project of SDYCORE LAB is the simplest primitive equations solver I co
 
 Plans for the future is to explore the effects of grid staggering, different formulations of the primitive equations, different vertical coordinate systems and different soultion algorithms. I have already decided that I want to implement a finite difference solver on a staggered grid, a spectral solver and finite difference solver in the vorticity-divergence formulation. Plans for the far future might involve implementing a finite volume solver or some other solver.
 
+Follow the progress on my [blog](hansbrenna.github.io) as well as here.
+
 Important references, resources and inspirations for this project has been (in order of discovery):
 1. Edwards, P. N. A Vast Machine: Computer Models, Climate Data, and the Politics of Global Warming. (MIT Press, 2010). doi:10.1111/j.1541-1338.2011.00522_3.x
 2. Chang, J. (ed.) Methods in Computational Physics Volume 17: General Circulation Models of the Atmosphere. (Academic Press, 1977)
