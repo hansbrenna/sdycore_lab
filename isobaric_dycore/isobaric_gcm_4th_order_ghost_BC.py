@@ -15,27 +15,23 @@
 along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 @author: Hans Brenna
-This program implements a hydrostatic primitive equations GCM on an isobaric 
-vertical coordinate. The numerics will be 2nd order centered differences in 
-space and time on a uniform lat, lon horizontal grid. Subgrid scale diffusion 
-is neglected and energy will be removed from the grid scale by a 4th order
-Shapiro filter in both horizontal directions. Forcing will be adapted from 
-Held & Suarez 1994 with newtonian relaxation to radiative equilibrium and 
-Reyleigh damping of the horizontal velocities in the lower layers. To control 
-the 2dt computational mode I will apply a Robert-Asselin filter to the 
-prognostic variables.
+This program implements a hydrostatic dry primitive equations GCM on an isobaric 
+vertical coordinate. The numerics will be 4th order centered differences in 
+space and 2nd order centered leapfrog in time on a uniform lat, lon horizontal 
+grid. Subgrid scale diffusion is neglected and energy will be removed from the 
+grid scale by a 4th order Shapiro filter in both horizontal directions.
+Forcing will be adapted from Held & Suarez 1994 with newtonian relaxation to
+radiative equilibrium and Reyleigh damping of the horizontal velocities in 
+the lower layers. To control the 2dt computational mode we apply a 
+Robert-Asselin filter to the prognostic variables.
 
 Prognostic varriables: u,v,T,Ps
 Diagnostic variables: z,omega,omega_s,Q,theta,Fl,Fphi
 
 A speedup of the code was acheived using the numba just-in-time compiler @jit
-on most of the functions doing for loops. some functions are outsourced to Fortran
-using f2py.
+on most of the functions doing for loops.
 
-Current issues: Does not conserve total mass. drift is small ~0.1% over 10 days
-considering potential fixes. Fixed with mass fixer
 
-moving prognostic equations to 4th order centered differences
 
 """
 from __future__ import print_function
@@ -167,8 +163,8 @@ def prognostic_T(T_f,T_n,T_p,u_n,v_n,omega_n,theta_n,Ps_n,theta_s,omegas_n,Q_n):
 def prognostic_Ps(Ps_f,Ps_n,Ps_p,omegas_n,us,vs,lnPs):
     for i in range(4,nlambda+4):
         for j in range(4,nphi+4):
-            adv_P = ((us[i,j])/(a*cosphi[j])*(Ps_n[i+1,j]-Ps_n[i-1,j])
-                      /(2*dlambda)+(vs[i,j]/(a))*(Ps_n[i,j+1]-Ps_n[i,j-1])/(2*dphi))
+            adv_P = ((us[i,j])/(a*cosphi[j])*(Ps_n[i-2,j]+8*(-Ps_n[i-1,j]+Ps_n[i+1,j])-Ps_n[i+2,j])
+                      /(12*dlambda)+(vs[i,j]/(a))*((Ps_n[i,j-2]+8*(-Ps_n[i,j-1]+Ps_n[i,j+1])-Ps_n[i,j+2]))/(12*dphi))
             Ps_f[i,j] = Ps_p[i,j]+2*dt*(-adv_P+omegas_n[i,j])
 
     if Ps_f.min() < 92500.:
@@ -176,6 +172,20 @@ def prognostic_Ps(Ps_f,Ps_n,Ps_p,omegas_n,us,vs,lnPs):
     Ps_f = mass_fixer(Ps_f,P0)
     lnPs[4:-4,4:-4] = np.log(Ps_f[4:-4,4:-4])
     return Ps_f,lnPs
+
+#@jit
+#def prognostic_Ps(Ps_f,Ps_n,Ps_p,omegas_n,us,vs,lnPs):
+#    for i in range(4,nlambda+4):
+#        for j in range(4,nphi+4):
+#            adv_P = ((us[i,j])/(a*cosphi[j])*(Ps_n[i+1,j]-Ps_n[i-1,j])
+#                      /(2*dlambda)+(vs[i,j]/(a))*(Ps_n[i,j+1]-Ps_n[i,j-1])/(2*dphi))
+#            Ps_f[i,j] = Ps_p[i,j]+2*dt*(-adv_P+omegas_n[i,j])
+#
+#    if Ps_f.min() < 92500.:
+#        Ps_f[np.where(Ps_f < 92500.)] = 92500.
+#    Ps_f = mass_fixer(Ps_f,P0)
+#    lnPs[4:-4,4:-4] = np.log(Ps_f[4:-4,4:-4])
+#    return Ps_f,lnPs
 
 @jit(nopython=True,nogil=True)
 def diag_omega(omega_n,u_n,v_n,cosphi,dP):
@@ -207,13 +217,27 @@ def diag_omegas(omegas_n,omega_n,u_n,v_n,us,vs):
     vb = 0.5*(v_n[:,:,nP-1]+vs)
     for i in range(4,nlambda+4):
         for j in range(4,nphi+4):
-            int_div_v = ((cosphi[j+1]*v_n[i,j+1,nP-1]-cosphi[j-1]*v_n[i,j-1,nP-1])/(2*dphi)*dP[0]/2. 
-                      + (cosphi[j+1]*vb[i,j+1]-cosphi[j-1]*vb[i,j-1])/(2*dphi)*(Ps_n[i,j]-P[nP-1]))
-            int_div_u = ((u_n[i+1,j,nP-1]-u_n[i-1,j,nP-1])/(2*dlambda)*dP[0]/2. 
-                      + (ub[i+1,j]-ub[i-1,j])/(2*dlambda)*(Ps_n[i,j]-P[nP-1]))
+            int_div_v = ((cosphi[j-2]*v_n[i,j-2,nP-1]+8*(-cosphi[j-1]*v_n[i,j-1,nP-1]+cosphi[j+1]*v_n[i,j+1,nP-1])-cosphi[j+2]*v_n[i,j+2,nP-1])/(12*dphi)*dP[0]/2. 
+                      + (cosphi[j-2]*vb[i,j-2]+8*(-cosphi[j-1]*vb[i,j-1]+cosphi[j+1]*vb[i,j+1])-cosphi[j+2]*vb[i,j+2])/(12*dphi)*(Ps_n[i,j]-P[nP-1]))
+            int_div_u = ((u_n[i-2,j,nP-1]+8*(-u_n[i-1,j,nP-1]+u_n[i+1,j,nP-1])-u_n[i+2,j,nP-1])/(12*dlambda)*dP[0]/2. 
+                      + (ub[i-2,j]+8*(-ub[i-1,j]+ub[i+1,j])-ub[i+2,j])/(12*dlambda)*(Ps_n[i,j]-P[nP-1]))
             
             omegas_n[i,j] = (omega_n[i,j,nP-1] + (-(1./(a*cosphi[j])*int_div_u+1./(a*cosphi[j])*int_div_v)))
     return omegas_n
+
+#@jit
+#def diag_omegas(omegas_n,omega_n,u_n,v_n,us,vs):
+#    ub = 0.5*(u_n[:,:,nP-1]+us)
+#    vb = 0.5*(v_n[:,:,nP-1]+vs)
+#    for i in range(4,nlambda+4):
+#        for j in range(4,nphi+4):
+#            int_div_v = ((cosphi[j+1]*v_n[i,j+1,nP-1]-cosphi[j-1]*v_n[i,j-1,nP-1])/(2*dphi)*dP[0]/2. 
+#                      + (cosphi[j+1]*vb[i,j+1]-cosphi[j-1]*vb[i,j-1])/(2*dphi)*(Ps_n[i,j]-P[nP-1]))
+#            int_div_u = ((u_n[i+1,j,nP-1]-u_n[i-1,j,nP-1])/(2*dlambda)*dP[0]/2. 
+#                      + (ub[i+1,j]-ub[i-1,j])/(2*dlambda)*(Ps_n[i,j]-P[nP-1]))
+#            
+#            omegas_n[i,j] = (omega_n[i,j,nP-1] + (-(1./(a*cosphi[j])*int_div_u+1./(a*cosphi[j])*int_div_v)))
+#    return omegas_n
 
 #@jit
 #def diag_omegas(omegas_n,omega_n,u_n,v_n,us,vs):
@@ -345,9 +369,9 @@ def H_S_friction(Fl,Fphi,u_n,v_n,Ps_n,kv,sigmab):
                 Fphi[i,j,k] = kv[i,j,k]*v_n[i,j,k] 
     return Fl,Fphi
 
-@jit
+#@jit
 def mass_fixer(Ps_f,P0):
-    Ps_f[4:-4,4:-4] = (P0/np.average(Ps_f[4:-4,4:-4],axis=1,weights=cosphi[4:-4]).mean())*Ps_f[4:-4,4:-4]
+    Ps_f[4:-4,4:-4] = (P0/np.mean(np.average(Ps_f[4:-4,4:-4],axis=1,weights=cosphi[4:-4]))*Ps_f[4:-4,4:-4])
     return Ps_f
 
 @jit
@@ -362,6 +386,51 @@ def sponge_layer(sFl,sFphi,skv,u_n,v_n):
     sFphi = skv*(v_n)
     return sFl,sFphi
 
+def calculate_polar_filter_coefficients():
+    coeffs = np.zeros([nlambda//2,nphi])
+    coeffs2 = np.zeros([nlambda,nphi])
+    C = cosphi[4:-4]/np.cos(np.deg2rad(45))
+    wavenumber = np.arange(1,nlambda//2)
+    D = np.zeros([nlambda//2])
+#    print(D.shape,C.shape)
+    D[0] = 1
+#    print(D[71])
+#    print(C[71])
+    temp=0
+#    print(temp.shape)
+    D[1:] = 1./(np.sin(wavenumber*pi/nlambda))
+    for i in range(nlambda//2):
+        for j in range(nphi):
+#            print(i,j)
+            temp = (C[j]*D[i])**2
+#            temp = D[i]
+            if temp > 1.0:
+                temp = 1.0
+            coeffs[i,j] = temp
+    coeffs[0,:] = 1.0
+    ii =[[i,i] for i in range(1,nlambda//2)]
+    ii=np.array(ii)
+    ii=ii.flatten()
+    coeffs2[1:-1,:] = coeffs[ii,:]
+    coeffs2[0,:] = coeffs[0,:]
+    coeffs2[-1,:] = coeffs2[-2,:]
+    return coeffs2
+
+
+def new_polar_filter(psi,coeffs):
+    psi_trans = rfft(psi[4:-4,4:-4,:],axis=0)
+    psi_trans_filtered = np.zeros(psi_trans.shape)
+    for k in range(nP):
+        psi_trans_filtered[:,:,k] = psi_trans[:,:,k]*coeffs
+    psi[4:-4,4:-4,:] = irfft(psi_trans_filtered,axis=0)        
+    return psi
+
+def new_polar_filter_2d(psi,coeffs):
+    psi_trans = rfft(psi[4:-4,4:-4],axis=0)
+    psi_trans_filtered = psi_trans.copy()
+    psi_trans_filtered[:,:] = psi_trans[:,:]*coeffs
+    psi[4:-4,4:-4] = irfft(psi_trans_filtered,axis=0)        
+    return psi
 
 
 def polar_fourier_filter(psi):
@@ -447,7 +516,7 @@ def update_tau(u_f,v_f,tau):
             tau = 12.0
     return tau
 
-@jit
+@jit(nopython=True,nogil=True,parallel=True)
 def fourth_order_shapiro_filter(psi,vector=False,tau=10):
     psi_filtered_lambda = psi.copy()
     psi_filtered = psi.copy()
@@ -455,17 +524,17 @@ def fourth_order_shapiro_filter(psi,vector=False,tau=10):
     subtractive_filter = psi.copy()
 #    tau = 3000./dt
     #4th order shapiro in lambda direction
-    for i in range(4,nlambda+4):
-        for j in range(4,nphi+4):
-            for k in range(nP):
+    for i in prange(4,nlambda+4):
+        for j in prange(4,nphi+4):
+            for k in prange(nP):
                 psi_filtered_lambda[i,j,k] = ((1./256)*(186.*psi[i,j,k]+56.*(psi[i-1,j,k]
                            +psi[i+1,j,k])-28*(psi[i-2,j,k]+psi[i+2,j,k])
                            +8*(psi[i-3,j,k]+psi[i+3,j,k])-(psi[i-4,j,k]+psi[i+4,j,k])))
            
     #4th order shapiro filter in phi direction
-    for i in range(4,nlambda+4):
-        for j in range(4,nphi+4):
-            for k in range(nP):
+    for i in prange(4,nlambda+4):
+        for j in prange(4,nphi+4):
+            for k in prange(nP):
                 psi_filtered[i,j,k] = ((1./256.)*(186.*psi_filtered_lambda[i,j,k]+56.*(psi_filtered_lambda[i,j-1,k]
                         +psi_filtered_lambda[i,j+1,k])-28*(psi_filtered_lambda[i,j-2,k]+psi_filtered_lambda[i,j+2,k])
                         +8*(psi_filtered_lambda[i,j-3,k]+psi_filtered_lambda[i,j+3,k])-(psi_filtered_lambda[i,j-4,k]+psi_filtered_lambda[i,j+4,k])))
@@ -499,6 +568,7 @@ def fourth_order_shapiro_filter_2D(psi,vector=False):
     
     return psi_filtered_2
 
+@jit(nopython=True,nogil=True,parallel=True)
 def Robert_Asselin_filter(psi_f,psi_n,psi_p):
     filter_parameter = 0.1
     psi_n_filtered = psi_n + 0.5*filter_parameter*(psi_p-2*psi_n+psi_f)
@@ -725,8 +795,8 @@ if __name__ == '__main__':
     start = time.time()
     #define constants
     pi = np.pi
-    nphi = 36
-    nlambda = 72    
+    nphi = 36#72 #36
+    nlambda = 72#144 #72    
     nP = 20 
     g = 9.81
     cp = 1004.
@@ -741,13 +811,13 @@ if __name__ == '__main__':
     kv_surf_w = 24
     cv = 0.01
     sigmab = 0.7
-    dlambda_deg = 5.
+    dlambda_deg = 5.#2.5 #5.
     dlambda = np.deg2rad(dlambda_deg)
-    dphi_deg = 5.
+    dphi_deg = 5.#2.5 #5.
     dphi = np.deg2rad(dphi_deg)
     dt = 300 #seconds
-    tstop = 86400*100
-#    tstop = 300000
+    #tstop = 86400*100
+    tstop = 3000000
     t = 0
     steps_per_day = 86400/4.
     #define fields
@@ -779,10 +849,11 @@ if __name__ == '__main__':
     lnP = np.log(Pf)
     #tau = 3000./dt
     tau = 10.
-    init = False
+    init = True
     restart = False
     rest_day = 600
     out = 0
+    coeffs = calculate_polar_filter_coefficients()
     if init:
         #prognostic fields
         Ps_f = np.zeros(shape=[4+nlambda+4,4+nphi+4])
@@ -910,10 +981,14 @@ if __name__ == '__main__':
         u_f,v_f,T_f,Ps_f = update_prognostic_BCs(u_f.copy(),v_f.copy(),T_f.copy(),Ps_f.copy(),nlambda)
 
         #polar filter
-        u_f = polar_fourier_filter(u_f)
-        v_f = polar_fourier_filter(v_f)
-        T_f = polar_fourier_filter(T_f)    
-        Ps_f = polar_fourier_filter_2D(Ps_f)
+        u_f = new_polar_filter(u_f,coeffs)
+        v_f = new_polar_filter(v_f,coeffs)
+        T_f = new_polar_filter(T_f,coeffs)
+        Ps_f = new_polar_filter_2d(Ps_f,coeffs)
+#        u_f = polar_fourier_filter(u_f)
+#        v_f = polar_fourier_filter(v_f)
+#        T_f = polar_fourier_filter(T_f)    
+#        Ps_f = polar_fourier_filter_2D(Ps_f)
         
 #        Apply Robert-Asselin filter to prognostic variables at time n
         u_n = Robert_Asselin_filter(u_f,u_n,u_p)
@@ -965,8 +1040,10 @@ if __name__ == '__main__':
             t_out.start()
 #            write_output(u_h,v_h,Ps_h,T_h,omega_h,omegas_h,Q_h,theta_h,u_n,u_p,v_n,v_p,T_n,
 #                 T_p,Ps_n,Ps_p,omega_n,z_n,theta_n,omegas_n,theta_s,us,vs,t,day)
+            plotter_help(np.mean(u_n[4:-4,4:-4,:],axis=0),0,1)
+            plt.show()
             day += 1
-        
+            
     #handle errors and exceptions
     
     end = time.time()
