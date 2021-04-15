@@ -353,9 +353,16 @@ def diag_z(zf_n,z_n,T_n,Ps_n,dlnP):
     
     zf_n = zf_n/g
     z_n = z_n/g
+    # if z_n.min() < 10:
+    
 
     return zf_n,z_n
 
+def z_limiter(z_n,zf_n):
+    z_n[np.where(z_n < 10)] = 10
+    zf_n[np.where(zf_n < 11)] = 11
+    return zf_n,z_n
+    
 
 @jit
 def helper_dlnP(dlnP,lnPs,Pf):
@@ -406,13 +413,13 @@ def diag_vorticity_divergence(vort,div,u_n,v_n):
     ud = u_n.copy()
     vd = v_n.copy()
     cosphi_d = cosphi.copy()
-    for i in range(2,nlambda+2):
-        for j in range(2,nphi+2):
+    for i in range(4,nlambda+4):
+        for j in range(4,nphi+4):
             for k in range(nP):
-                vort[i-2,j-2,k] = (1./(a*cosphi_d[j])*(((vd[i-2,j,k]+8*(-vd[i-1,j,k]+vd[i+1,j,k])
+                vort[i,j,k] = (1./(a*cosphi_d[j])*(((vd[i-2,j,k]+8*(-vd[i-1,j,k]+vd[i+1,j,k])
                       -vd[i+2,j,k])/(12*dlambda))-((cosphi_d[j-2]*ud[i,j-2,k]+8*(-cosphi_d[j-1]
                       *ud[i,j-1,k]+cosphi_d[j+1]*ud[i,j+1,k])-cosphi_d[j+2]*ud[i,j+2,k])/(12*dphi))))
-                div[i-2,j-2,k] = (1./(a*cosphi_d[j])*(((ud[i-2,j,k]+8*(-ud[i-1,j,k]+ud[i+1,j,k])
+                div[i,j,k] = (1./(a*cosphi_d[j])*(((ud[i-2,j,k]+8*(-ud[i-1,j,k]+ud[i+1,j,k])
                       -ud[i+2,j,k])/(12*dlambda))+((cosphi_d[j-2]*vd[i,j-2,k]+8*(-cosphi_d[j-1]
                       *vd[i,j-1,k]+cosphi_d[j+1]*vd[i,j+1,k])-cosphi_d[j+2]*vd[i,j+2,k])/(12*dphi))))
     return vort,div
@@ -916,6 +923,8 @@ def print_diagnostics(u_n,v_n,T_n,Ps_n,omega_n,omegas_n,z_n,n,t,day):
         print_max_min_of_field(omegas_n,'omegas')
         print_max_min_of_field(z_n[4:-4,4:-4,19],'z_l')
 
+
+### Main
 if __name__ == '__main__':
     start = time.time()
     start_day = time.time()
@@ -1147,7 +1156,7 @@ if __name__ == '__main__':
             gTE_n = diag_total_energy(gTE_n,TE_n,u_f,v_f,T_f)[0]
             T_f,beta = energy_fixer2(gTE_p,gTE_n,T_f,beta)
             gTE_n = diag_total_energy(gTE_n,TE_n,u_f,v_f,T_f)[0]
-            print(beta,gTE_n/gTE_p)
+            # print(beta,gTE_n/gTE_p)
         u_p = u_n.copy()
         u_n = u_f.copy()    
         v_p = v_n.copy()
@@ -1162,6 +1171,7 @@ if __name__ == '__main__':
         div = diag_divergence(div,u_n,v_n)
         omega_n = diag_omega2(omega_n,div)
         zf_n,z_n = diag_z(zf_n,z_n,T_n,Ps_n,dlnP)
+        zf_n,z_n = z_limiter(z_n,zf_n)
         theta_n,theta_s = diag_theta(theta_n,theta_s,T_n,Ts,P,Ps_n)
         #us,vs,Vs,A = diag_surface_wind(us,vs,Vs,u_n,v_n,Ps_p,A)
         z_n,zf_n,omega_n,omegas_n = update_diagnostic_BCs(z_n.copy(),zf_n.copy(),omega_n.copy(),omegas_n.copy(),us,vs,nlambda)
@@ -1179,6 +1189,7 @@ if __name__ == '__main__':
             u_n,v_n,T_n = update_uvT_with_physics(u_n,v_n,T_n,Fl,Fphi,Q_n,dt_phys)
             #recompute z
             zf_n,z_n = diag_z(zf_n,z_n,T_n,Ps_n,dlnP)
+            zf_n,z_n = z_limiter(z_n,zf_n)
             #Update boundary conditions
             u_n,v_n,T_n,Ps_n = update_prognostic_BCs(u_n.copy(),v_n.copy(),T_n.copy(),Ps_n.copy(),nlambda)
             z_n,zf_n,omega_n,omegas_n = update_diagnostic_BCs(z_n.copy(),zf_n.copy(),omega_n.copy(),omegas_n.copy(),us,vs,nlambda)
