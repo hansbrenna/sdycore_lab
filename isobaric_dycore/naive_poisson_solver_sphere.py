@@ -12,7 +12,7 @@ from numba import jit
 
 @jit()
 def iterative_solver_sphere(Qin,R,a,tanphi,cosphi,dlambda,dphi,nlambda,nphi,nP,exit_status=0):
-    omg = 1
+    #omg = 1
     Q=Qin.copy()
     Q[:]=0.0
     Qd = np.zeros([nlambda+2,nphi+2,nP])
@@ -32,7 +32,7 @@ def iterative_solver_sphere(Qin,R,a,tanphi,cosphi,dlambda,dphi,nlambda,nphi,nP,e
     a4 = 1./(a*a*dphi*dphi)
     
     maxiter=1000
-    epsilon = 1e-14
+    epsilon = 0.00001
     delta=1
 
     n_iter=0
@@ -61,10 +61,10 @@ def iterative_solver_sphere(Qin,R,a,tanphi,cosphi,dlambda,dphi,nlambda,nphi,nP,e
             Q_old = Q[:,:,k].copy()
             for i in range(1,nlambda+1):
                 for j in range(1,nphi+1):
-                    Qstar[i-1,j-1,k] = (a1[j]*(a2[j]*(Qd[i+1,j,k]+Qd[i-1,j,k])+a3[j]
+                    Q[i-1,j-1,k] = (a1[j]*(a2[j]*(Qd[i+1,j,k]+Qd[i-1,j,k])+a3[j]
                              *(Qd[i,j+1,k]-Qd[i,j-1,k])+a4*(Qd[i,j+1,k]+Qd[i,j-1,k])-R[i-1,j-1,k]))
 #            omg = 2. / ( 1. + np.sin(np.pi/(n_iter+1)) )
-            Q = omg*Qstar + (1.-omg)*Q
+            #Q = omg*Qstar + (1.-omg)*Q
             delta = np.max(np.abs(Q_old-Q[:,:,k]))
 #            if k == 2:
 #                print(k,n_iter,delta)
